@@ -7,11 +7,11 @@ class NoCardsException(Exception):
     pass
 
 
-class NoSkullException:
+class NoSkullException(Exception):
     pass
 
 
-class NoFlowerException:
+class NoFlowerException(Exception):
     pass
 
 
@@ -23,7 +23,7 @@ class Card:
 
 class Player:
     def __init__(self, name: str):
-        self.name = name
+        self.name: str = name
         self.cards_hand: List[str] = [
             Card.FLOWER,
             Card.FLOWER,
@@ -36,10 +36,10 @@ class Player:
         self.is_playing: bool = True
         self.cards_revealed: List[str] = []
 
-    def can_play_skull(self):
+    def can_play_skull(self) -> bool:
         return Card.SKULL in self.cards_hand
 
-    def can_play_flower(self):
+    def can_play_flower(self) -> bool:
         return Card.FLOWER in self.cards_hand
 
     def remove_card(self):
