@@ -17,6 +17,10 @@ class NoFlowerException(Exception):
     pass
 
 
+class CannotLoadHiddenStateException(Exception):
+    pass
+
+
 @dataclass
 class PlayerState:
     name: str
@@ -26,6 +30,10 @@ class PlayerState:
     alive: bool
     is_playing: bool
     cards_revealed: List[str]
+
+    @property
+    def is_hidden(self):
+        return Card.hidden in self.cards_hand + self.cards_stack
 
 
 class Player:
@@ -89,12 +97,23 @@ class Player:
         return PlayerState(
             name=self.name,
             points=self.points,
-            cards_hand=[Card.hidden for _ in self.cards_hand] if hidden else self.cards_hand,
-            cards_stack=[Card.hidden for _ in self.cards_stack] if hidden else self.cards_stack,
+            cards_hand=[Card.hidden for _ in self.cards_hand]
+            if hidden
+            else self.cards_hand,
+            cards_stack=[Card.hidden for _ in self.cards_stack]
+            if hidden
+            else self.cards_stack,
             cards_revealed=self.cards_revealed,
             alive=self.alive,
             is_playing=self.is_playing,
         )
 
-    def load_state(self, state: PlayerState):
-        self.__dict__.update({k: v for k, v in state.__dict__() if hasattr(self, k)})
+    @classmethod
+    def from_state(self, state: PlayerState):
+        if state.is_hidden:
+            raise CannotLoadHiddenStateException()
+        new_player = Player(name=state.name)
+        new_player.__dict__.update(
+            {k: v for k, v in state.__dict__ if hasattr(new_player, k)}  # type: ignore
+        )
+        return new_player

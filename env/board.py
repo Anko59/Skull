@@ -25,9 +25,6 @@ class GameIsOver(Exception):
 class GameHasNotStarted(Exception):
     pass
 
-class CannotLoadStateException(Exception):
-    pass
-
 
 @dataclass
 class BoardState:
@@ -43,7 +40,7 @@ class Board:
         self.bet_holder: Optional[Player] = None
         self.highest_bet: int = 0
         self.next_player: Player = self.players[0]
-        self.legal_moves: List[Action] = self._get_legal_moves(self.next_player)
+        self.legal_moves: List[Action] = self._get_legal_moves()
         self.action_record: List[str] = []
         self.state_record: List[BoardState] = []
 
@@ -124,7 +121,7 @@ class Board:
             action = parse_notation(action)
         if action not in self.legal_moves:
             raise MoveIsNotLegal()
-        self.state_record.append(copy(self.get_state()))
+        self.state_record.append(copy(self.get_state(show_hand=[p.name for p in self.players])))
         self.action_record.append(action.notation)
         self._process_action(self.next_player, action)
         if self._is_round_over():
@@ -133,7 +130,7 @@ class Board:
             self.next_player = self.players[
                 (self.players.index(self.next_player) + 1) % len(self.players)
             ]
-        self.legal_moves = self._get_legal_moves(self.next_player)
+        self.legal_moves = self._get_legal_moves()
 
     def pop(self):
         if len(self.state_record) == 0:
@@ -142,13 +139,12 @@ class Board:
         self.load_state(last_state)
         self.state_record = self.state_record[:-1]
         self.action_record = self.action_record[:-1]
-        self.legal_moves = self._get_legal_moves()
 
     def load_state(self, state: BoardState):
-        if len(state.players) != len(self.players):
-            raise CannotLoadStateException()
-        for player, player_state in zip(self.players, state.players):
-            player.load_state(player_state)
+        self.players = [
+            Player.from_state(state=player_state)
+            for player_state in state.players
+        ]
 
         self.highest_bet = state.highest_bet
         if state.bet_holder is None:
@@ -160,8 +156,10 @@ class Board:
         self.next_player = self.players[
             [x.name for x in self.players].index(state.next_player)
         ]
+        self.legal_moves = self._get_legal_moves()
 
-    def _get_legal_moves(self, player: Player) -> List[Action]:  # type: ignore
+    def _get_legal_moves(self) -> List[Action]:  # type: ignore
+        player = self.next_player
         if not player.alive or not player.is_playing:
             return [PassAction()]
         if self.bet_holder != player:
@@ -224,3 +222,10 @@ class Board:
             highest_bet=self.highest_bet,
             bet_holder=self.bet_holder.name if self.bet_holder is not None else None,
         )
+
+    @classmethod
+    def from_state(self, state: BoardState):
+        new_board = Board(player_names=[])
+        new_board.load_state(state)
+        new_board.legal_moves = new_board._get_legal_moves()
+        return new_board
