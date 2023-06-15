@@ -113,7 +113,10 @@ class Player:
         if state.is_hidden:
             raise CannotLoadHiddenStateException()
         new_player = Player(name=state.name)
-        new_player.__dict__.update(
-            {k: v for k, v in state.__dict__ if hasattr(new_player, k)}  # type: ignore
-        )
+        new_player.cards_hand = state.cards_hand
+        new_player.cards_stack = state.cards_stack
+        new_player.points = state.points
+        new_player.alive = state.alive
+        new_player.is_playing = state.is_playing
+        new_player.cards_revealed = state.cards_revealed
         return new_player
