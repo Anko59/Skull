@@ -1,5 +1,7 @@
+from .card import Card
 from copy import copy
 from typing import List, Iterable
+from dataclasses import dataclass
 import random
 
 
@@ -15,10 +17,15 @@ class NoFlowerException(Exception):
     pass
 
 
-class Card:
-    FLOWER = "FLOWER"
-    SKULL = "SKULL"
-    hidden = "HIDDEN"
+@dataclass
+class PlayerState:
+    name: str
+    cards_hand: List[str]
+    cards_stack: List[str]
+    points: int
+    alive: bool
+    is_playing: bool
+    cards_revealed: List[str]
 
 
 class Player:
@@ -77,3 +84,17 @@ class Player:
         self.cards_revealed = []
         if len(self.cards_hand) == 0:
             self.alive = False
+
+    def get_state(self, hidden: bool = False) -> PlayerState:
+        return PlayerState(
+            name=self.name,
+            points=self.points,
+            cards_hand=[Card.hidden for _ in self.cards_hand] if hidden else self.cards_hand,
+            cards_stack=[Card.hidden for _ in self.cards_stack] if hidden else self.cards_stack,
+            cards_revealed=self.cards_revealed,
+            alive=self.alive,
+            is_playing=self.is_playing,
+        )
+
+    def load_state(self, state: PlayerState):
+        self.__dict__.update({k: v for k, v in state.__dict__() if hasattr(self, k)})

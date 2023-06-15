@@ -1,5 +1,16 @@
-from .player import Player, Card
-from typing import List, Optional
+from .player import Player, PlayerState
+from .card import Card
+from .actions import (
+    Action,
+    PlayCardAction,
+    BetAction,
+    RevealCardAction,
+    LoseCardAction,
+    PassAction,
+    parse_notation,
+)
+from typing import List, Optional, Union
+from copy import copy
 from dataclasses import dataclass
 
 
@@ -11,34 +22,19 @@ class GameIsOver(Exception):
     pass
 
 
-@dataclass
-class Action:
+class GameHasNotStarted(Exception):
+    pass
+
+class CannotLoadStateException(Exception):
     pass
 
 
 @dataclass
-class PlayCardAction(Action):
-    card: str
-
-
-@dataclass
-class LoseCardAction(Action):
-    card: str
-
-
-@dataclass
-class RevealCardAction(Action):
-    player_name: str
-
-
-@dataclass
-class BetAction(Action):
-    amount: int
-
-
-@dataclass
-class PassAction(Action):
-    pass
+class BoardState:
+    players: List[PlayerState]
+    bet_holder: Optional[str]
+    highest_bet: int
+    next_player: str
 
 
 class Board:
@@ -46,10 +42,10 @@ class Board:
         self.players: List[Player] = [Player(name=x) for x in player_names]
         self.bet_holder: Optional[Player] = None
         self.highest_bet: int = 0
-        self._cards_shown: int = 0
-        self.winner: Optional[Player] = None
         self.next_player: Player = self.players[0]
         self.legal_moves: List[Action] = self._get_legal_moves(self.next_player)
+        self.action_record: List[str] = []
+        self.state_record: List[BoardState] = []
 
     def _has_anyone_won(self) -> bool:
         return any([player.points > 1 for player in self.players])
@@ -62,6 +58,9 @@ class Board:
 
     def _nbr_cards_on_board(self) -> int:
         return sum([len(player.cards_stack) for player in self.players])
+
+    def _cards_shown(self) -> int:
+        return sum([len(player.cards_revealed) for player in self.players])
 
     def _start_round(self):
         # Collect cards
@@ -76,7 +75,6 @@ class Board:
         self.next_player = self.players[0]
         self.bet_holder = None
         self.highest_bet = 0
-        self._cards_shown = 0
 
     def _process_action(self, player: Player, action: Action):
         if isinstance(action, PlayCardAction):
@@ -90,7 +88,6 @@ class Board:
             self.highest_bet = action.amount
 
         elif isinstance(action, RevealCardAction):
-            cards_shown = max(self._cards_shown, len(player.cards_revealed))
             for p in self.players:
                 if p.name == action.player_name:
                     card = next(p.reveal_stack())  # type: ignore
@@ -98,13 +95,11 @@ class Board:
                         player.is_playing = False
                         player.remove_card()
                     else:
-                        cards_shown += 1
-                        self._cards_shown = cards_shown
-                        if cards_shown == self.highest_bet:
+                        if self._cards_shown() == self.highest_bet:
                             player.is_playing = False
                             player.points += 1
 
-        elif isinstance(action,  LoseCardAction):
+        elif isinstance(action, LoseCardAction):
             player.collect_cards()
             player.cards_hand.remove(action.card)
             if len(player.cards_hand) == 0:
@@ -114,11 +109,23 @@ class Board:
         elif isinstance(action, PassAction):
             player.is_playing = False
 
-    def push(self, action: Action):
-        if self.winner is not None:
+    def winner(self):
+        if not self._are_more_than_two_players_alive():
+            return [x for x in self.players if x.alive][0]  # type: ignore
+        elif self._has_anyone_won():
+            return [x for x in self.players if x.points > 1][0]  # type: ignore
+        else:
+            return None
+
+    def push(self, action: Union[Action, str]):
+        if self.winner() is not None:
             raise GameIsOver()
+        if isinstance(action, str):
+            action = parse_notation(action)
         if action not in self.legal_moves:
             raise MoveIsNotLegal()
+        self.state_record.append(copy(self.get_state()))
+        self.action_record.append(action.notation)
         self._process_action(self.next_player, action)
         if self._is_round_over():
             self._start_round()
@@ -127,10 +134,32 @@ class Board:
                 (self.players.index(self.next_player) + 1) % len(self.players)
             ]
         self.legal_moves = self._get_legal_moves(self.next_player)
-        if not self._are_more_than_two_players_alive():
-            self.winner = [x for x in self.players if x.alive][0]  # type: ignore
-        elif self._has_anyone_won():
-            self.winner = [x for x in self.players if x.points > 1][0]  # type: ignore
+
+    def pop(self):
+        if len(self.state_record) == 0:
+            raise GameHasNotStarted()
+        last_state = self.state_record[-1]
+        self.load_state(last_state)
+        self.state_record = self.state_record[:-1]
+        self.action_record = self.action_record[:-1]
+        self.legal_moves = self._get_legal_moves()
+
+    def load_state(self, state: BoardState):
+        if len(state.players) != len(self.players):
+            raise CannotLoadStateException()
+        for player, player_state in zip(self.players, state.players):
+            player.load_state(player_state)
+
+        self.highest_bet = state.highest_bet
+        if state.bet_holder is None:
+            self.bet_holder = None
+        else:
+            self.bet_holder = self.players[
+                [x.name for x in self.players].index(state.bet_holder)
+            ]
+        self.next_player = self.players[
+            [x.name for x in self.players].index(state.next_player)
+        ]
 
     def _get_legal_moves(self, player: Player) -> List[Action]:  # type: ignore
         if not player.alive or not player.is_playing:
@@ -182,23 +211,16 @@ class Board:
                 if opponent != player and len(opponent.cards_stack) > 0
             ]
 
-    def get_state(self) -> dict:
-        return {
-            "NEXT_PLAYER": self.next_player.name,
-            "PLAYER_ORDER": [p.name for p in self.players],
-            "BET_HOLDER": self.bet_holder.name if self.bet_holder is not None else None,
-            "HIGHEST_BET": self.highest_bet,
-            "BOARD": {
-                p.name: {
-                    "HAND": p.cards_hand
-                    if p == self.next_player
-                    else [Card.hidden for x in p.cards_hand],
-                    "STACK": p.cards_stack
-                    if p == self.next_player
-                    else [Card.hidden for x in p.cards_stack],
-                    "POINTS": p.points,
-                    "REVEALED": p.cards_revealed,
-                }
-                for p in self.players
-            },
-        }
+    def get_state(
+        self, show_hand: Union[List[str], str] = "next_player"
+    ) -> BoardState:
+        if show_hand == "next_player":
+            show_hand = [self.next_player.name]
+        return BoardState(
+            next_player=self.next_player.name,
+            players=[
+                p.get_state(hidden=(p.name in show_hand))  # type: ignore
+                for p in self.players],
+            highest_bet=self.highest_bet,
+            bet_holder=self.bet_holder.name if self.bet_holder is not None else None,
+        )
