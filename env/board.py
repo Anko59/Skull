@@ -217,7 +217,7 @@ class Board:
         return BoardState(
             next_player=self.next_player.name,
             players=[
-                p.get_state(hidden=(p.name in show_hand))  # type: ignore
+                p.get_state(hidden=(p.name not in show_hand))  # type: ignore
                 for p in self.players],
             highest_bet=self.highest_bet,
             bet_holder=self.bet_holder.name if self.bet_holder is not None else None,
