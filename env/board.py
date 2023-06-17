@@ -7,11 +7,14 @@ from .actions import (
     RevealCardAction,
     LoseCardAction,
     PassAction,
-    parse_notation,
 )
 from typing import List, Optional, Union
-from copy import copy
+from copy import deepcopy
 from dataclasses import dataclass
+from logging import getLogger
+
+
+logger = getLogger()
 
 
 class MoveIsNotLegal(Exception):
@@ -47,7 +50,7 @@ class Board:
     def _has_anyone_won(self) -> bool:
         return any([player.points > 1 for player in self.players])
 
-    def _are_more_than_two_players_alive(self) -> bool:
+    def _is_more_than_one_player_alive(self) -> bool:
         return sum([int(player.alive) for player in self.players]) > 1
 
     def _is_round_over(self) -> bool:
@@ -60,6 +63,7 @@ class Board:
         return sum([len(player.cards_revealed) for player in self.players])
 
     def _start_round(self):
+        logger.debug('Starting round')
         # Collect cards
         for player in self.players:
             player.collect_cards()
@@ -70,17 +74,22 @@ class Board:
                 # Last bet_holder is next first player
                 self.players = self.players[index:] + self.players[:index]
         self.next_player = self.players[0]
+        logger.debug(f'First player of round is {self.next_player.name}')
         self.bet_holder = None
         self.highest_bet = 0
 
     def _process_action(self, player: Player, action: Action):
         if isinstance(action, PlayCardAction):
+            logger.debug(f'Player {player.name} played card {action.card.value}')
             if action.card == Card.FLOWER:
                 player.play_flower()
-            else:
+            elif action.card == Card.SKULL:
                 player.play_skull()
+            else:
+                raise MoveIsNotLegal()
 
         elif isinstance(action, BetAction):
+            logger.debug(f'Player {player.name} bet {action.amount}')
             self.bet_holder = player
             self.highest_bet = action.amount
 
@@ -88,29 +97,40 @@ class Board:
             for p in self.players:
                 if p.name == action.player_name:
                     card = next(p.reveal_stack())  # type: ignore
+                    logger.debug(
+                        f'Player {player.name} revealed the card of {p.name}'
+                        f' and it is a {card.value}')
                     if card == Card.SKULL:
                         player.is_playing = False
                         player.remove_card()
+                        logger.debug(f'Player {player.name} lost a random card')
                     else:
                         if self._cards_shown() == self.highest_bet:
                             player.is_playing = False
+                            logger.debug(f'Player {player.name} earned a point')
                             player.points += 1
 
         elif isinstance(action, LoseCardAction):
+            logger.debug(f'Player {player.name} chose to lose {action.card.value}')
             player.collect_cards()
             player.cards_hand.remove(action.card)
             if len(player.cards_hand) == 0:
+                logger.debug(f'Player {player.name} got eliminated')
                 player.alive = False
             player.is_playing = False
 
         elif isinstance(action, PassAction):
             player.is_playing = False
 
-    def winner(self):
-        if not self._are_more_than_two_players_alive():
-            return [x for x in self.players if x.alive][0]  # type: ignore
+    def winner(self) -> Optional[Player]:
+        if not self._is_more_than_one_player_alive():
+            winner = [x for x in self.players if x.alive][0]
+            logger.debug(f'We have a winner: {winner}')
+            return winner
         elif self._has_anyone_won():
-            return [x for x in self.players if x.points > 1][0]  # type: ignore
+            winner = [x for x in self.players if x.points > 1][0]
+            logger.debug(f'We have a winner: {winner}')
+            return winner
         else:
             return None
 
@@ -118,11 +138,11 @@ class Board:
         if self.winner() is not None:
             raise GameIsOver()
         if isinstance(action, str):
-            action = parse_notation(action)
+            action = Action.from_notation(action)
         if action not in self.legal_moves:
             raise MoveIsNotLegal()
-        self.state_record.append(copy(self.get_state(show_hand=[p.name for p in self.players])))
-        self.action_record.append(action.notation)
+        self.state_record.append(deepcopy(self.get_state(show_hand=[p.name for p in self.players])))
+        self.action_record.append(str(action))
         self._process_action(self.next_player, action)
         if self._is_round_over():
             self._start_round()
@@ -139,6 +159,11 @@ class Board:
         self.load_state(last_state)
         self.state_record = self.state_record[:-1]
         self.action_record = self.action_record[:-1]
+
+    def forward(self, action: Union[Action, str]):
+        self.push(action)
+        if len(self.legal_moves) == 1:
+            self.forward(self.legal_moves[0])
 
     def load_state(self, state: BoardState):
         self.players = [
@@ -157,6 +182,58 @@ class Board:
             [x.name for x in self.players].index(state.next_player)
         ]
         self.legal_moves = self._get_legal_moves()
+        logger.debug(f'State loaded, next player is {self.next_player.name}')
+
+    def _get_legal_moves_cards_and_bet_stage(self) -> List[Action]:
+        player = self.next_player
+        legal_actions: list[Action] = []
+        # If there is no bet, he can place cards
+        if self.bet_holder is None:
+            if player.can_play_flower():
+                legal_actions.append(PlayCardAction(Card.FLOWER))
+            if player.can_play_skull():
+                legal_actions.append(PlayCardAction(Card.SKULL))
+        # If there is a bet, he can abandon
+        else:
+            legal_actions.append(PassAction())
+
+        # If everyone has played at least once, he can bet
+        # up to the total number of cards
+        if not any(
+            [(len(p.cards_stack) == 0) and p.is_playing for p in self.players]
+        ):
+            for i in range(self.highest_bet + 1, self._nbr_cards_on_board() + 1):
+                legal_actions.append(BetAction(i))
+        logger.debug(f'Legal moves {legal_actions}')
+        return legal_actions
+    
+    def _get_legal_moves_reveal_cards_stage(self) -> List[Action]:
+        player = self.next_player
+        # Starting with his own cards
+        for card in player.reveal_stack():
+            logger.debug(f'Player {player.name} reveald card {card.value} from his stack')
+            if card == Card.SKULL:
+                # Auto Skulled
+                player.collect_cards()
+                if player.can_play_flower():
+                    return [LoseCardAction(Card.FLOWER), LoseCardAction(Card.SKULL)]
+                else:
+                    return [LoseCardAction(Card.SKULL)]
+
+            if len(player.cards_revealed) == self.highest_bet:
+                # Victory by returning only own cards
+                logger.debug(f'Player {player.name} earned a point')
+                player.points += 1
+                return [PassAction()]
+
+        # Player can return cards from every player
+        # except himself if they have played more cards then they have shown
+        return [
+            RevealCardAction(opponent.name)
+            for opponent in self.players
+            if opponent != player and len(opponent.cards_stack) > 0
+            ]
+
 
     def _get_legal_moves(self) -> List[Action]:  # type: ignore
         player = self.next_player
@@ -164,50 +241,11 @@ class Board:
             return [PassAction()]
         if self.bet_holder != player:
             # Player did not place the highest bet
-            legal_actions: list[Action] = []
-            # If there is no bet, he can place cards
-            if self.bet_holder is None:
-                if player.can_play_flower():
-                    legal_actions.append(PlayCardAction(Card.FLOWER))
-                if player.can_play_skull():
-                    legal_actions.append(PlayCardAction(Card.SKULL))
-            # If there is a bet, he can abandon
-            else:
-                legal_actions.append(PassAction())
-
-            # If everyone has played at least once, he can bet
-            # up to the total number of cards
-            if not any(
-                [(len(p.cards_stack) == 0) and p.is_playing for p in self.players]
-            ):
-                for i in range(self.highest_bet + 1, self._nbr_cards_on_board() + 1):
-                    legal_actions.append(BetAction(i))
-            return legal_actions
+            return self._get_legal_moves_cards_and_bet_stage()
         else:
             # One round has passed and player still has the highest bets
             # He can show cards
-            # Starting with his own car
-            for card in player.reveal_stack():
-                if card == Card.SKULL:
-                    # Auto Skulled
-                    player.collect_cards()
-                    if player.can_play_flower():
-                        return [LoseCardAction(Card.FLOWER), LoseCardAction(Card.SKULL)]
-                    else:
-                        return [LoseCardAction(Card.SKULL)]
-
-                if len(player.cards_revealed) == self.highest_bet:
-                    # Victory by returning only own cards
-                    player.points += 1
-                    return [PassAction()]
-
-            # Player can return cards from every player
-            # except himself if they have played more cards then they have shown
-            return [
-                RevealCardAction(opponent.name)
-                for opponent in self.players
-                if opponent != player and len(opponent.cards_stack) > 0
-            ]
+            return self._get_legal_moves_reveal_cards_stage()
 
     def get_state(
         self, show_hand: Union[List[str], str] = "next_player"

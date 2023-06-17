@@ -1,40 +1,54 @@
 from .card import Card
 from dataclasses import dataclass
-from abc import ABC, abstractmethod
+from abc import ABC
+
+
+class NotationDoesNotExistException(Exception):
+    pass
 
 
 class Action(ABC):
+    pass
 
-    @property
-    @abstractmethod
-    def notation(self) -> str:
-        pass
+    @classmethod
+    def from_notation(cls, notation: str) -> 'Action':
+        if notation.startswith("P"):
+            return PassAction()
+        elif notation.startswith("B"):
+            return BetAction(int(notation[1:]))
+        elif notation.startswith("R"):
+            return RevealCardAction(notation[1:])
+        elif notation.startswith("L"):
+            return LoseCardAction(Card(notation[1:]))
+        elif notation == 'S':
+            return PlayCardAction(Card.SKULL)
+        elif notation == 'F':
+            return PlayCardAction(Card.FLOWER)
+        else:
+            raise NotationDoesNotExistException()
 
 
 @dataclass
 class PlayCardAction(Action):
-    card: str
+    card: Card
 
-    @property
-    def notation(self) -> str:
-        return f"{self.card}"
+    def __str__(self) -> str:
+        return f"{self.card.value}"
 
 
 @dataclass
 class LoseCardAction(Action):
-    card: str
+    card: Card
 
-    @property
-    def notation(self) -> str:
-        return f"L{self.card}"
+    def __str__(self) -> str:
+        return f"L{self.card.value}"
 
 
 @dataclass
 class RevealCardAction(Action):
     player_name: str
 
-    @property
-    def notation(self) -> str:
+    def __str__(self) -> str:
         return f"R{self.player_name}"
 
 
@@ -42,33 +56,12 @@ class RevealCardAction(Action):
 class BetAction(Action):
     amount: int
 
-    @property
-    def notation(self) -> str:
+    def __str__(self) -> str:
         return f"B{self.amount}"
 
 
 @dataclass
 class PassAction(Action):
-    pass
-    notation: str = "P"
+    def __str__(self) -> str:
+        return "P"
 
-
-class NotationDoesNotExistException(Exception):
-    pass
-
-
-def parse_notation(notation: str) -> Action:
-    if notation.startswith("P"):
-        return PassAction()
-    elif notation.startswith("B"):
-        return BetAction(int(notation[1:]))
-    elif notation.startswith("R"):
-        return RevealCardAction(notation[1:])
-    elif notation.startswith("L"):
-        return LoseCardAction(notation[1:])
-    elif notation == 'S':
-        return PlayCardAction(Card.SKULL)
-    elif notation == 'F':
-        return PlayCardAction(Card.FLOWER)
-    else:
-        raise NotationDoesNotExistException()

@@ -24,12 +24,12 @@ class CannotLoadHiddenStateException(Exception):
 @dataclass
 class PlayerState:
     name: str
-    cards_hand: List[str]
-    cards_stack: List[str]
+    cards_hand: List[Card]
+    cards_stack: List[Card]
     points: int
     alive: bool
     is_playing: bool
-    cards_revealed: List[str]
+    cards_revealed: List[Card]
 
     @property
     def is_hidden(self):
@@ -39,17 +39,17 @@ class PlayerState:
 class Player:
     def __init__(self, name: str):
         self.name: str = name
-        self.cards_hand: List[str] = [
+        self.cards_hand: List[Card] = [
             Card.FLOWER,
             Card.FLOWER,
             Card.FLOWER,
             Card.SKULL,
         ]
-        self.cards_stack: List[str] = []
+        self.cards_stack: List[Card] = []
         self.points: int = 0
         self.alive: bool = True
         self.is_playing: bool = True
-        self.cards_revealed: List[str] = []
+        self.cards_revealed: List[Card] = []
 
     def can_play_skull(self) -> bool:
         return Card.SKULL in self.cards_hand
@@ -79,7 +79,7 @@ class Player:
         else:
             raise NoSkullException()
 
-    def reveal_stack(self) -> Iterable[str]:
+    def reveal_stack(self) -> Iterable[Card]:
         stack = copy(self.cards_stack)
         for card in reversed(stack):
             self.cards_revealed.append(card)
