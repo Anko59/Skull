@@ -1,5 +1,7 @@
+from .card import Card
 from copy import copy
 from typing import List, Iterable
+from dataclasses import dataclass
 import random
 
 
@@ -15,26 +17,39 @@ class NoFlowerException(Exception):
     pass
 
 
-class Card:
-    FLOWER = "FLOWER"
-    SKULL = "SKULL"
-    hidden = "HIDDEN"
+class CannotLoadHiddenStateException(Exception):
+    pass
+
+
+@dataclass
+class PlayerState:
+    name: str
+    cards_hand: List[Card]
+    cards_stack: List[Card]
+    points: int
+    alive: bool
+    is_playing: bool
+    cards_revealed: List[Card]
+
+    @property
+    def is_hidden(self):
+        return Card.hidden in self.cards_hand + self.cards_stack
 
 
 class Player:
     def __init__(self, name: str):
         self.name: str = name
-        self.cards_hand: List[str] = [
+        self.cards_hand: List[Card] = [
             Card.FLOWER,
             Card.FLOWER,
             Card.FLOWER,
             Card.SKULL,
         ]
-        self.cards_stack: List[str] = []
+        self.cards_stack: List[Card] = []
         self.points: int = 0
         self.alive: bool = True
         self.is_playing: bool = True
-        self.cards_revealed: List[str] = []
+        self.cards_revealed: List[Card] = []
 
     def can_play_skull(self) -> bool:
         return Card.SKULL in self.cards_hand
@@ -64,7 +79,7 @@ class Player:
         else:
             raise NoSkullException()
 
-    def reveal_stack(self) -> Iterable[str]:
+    def reveal_stack(self) -> Iterable[Card]:
         stack = copy(self.cards_stack)
         for card in reversed(stack):
             self.cards_revealed.append(card)
@@ -77,3 +92,31 @@ class Player:
         self.cards_revealed = []
         if len(self.cards_hand) == 0:
             self.alive = False
+
+    def get_state(self, hidden: bool = False) -> PlayerState:
+        return PlayerState(
+            name=self.name,
+            points=self.points,
+            cards_hand=[Card.hidden for _ in self.cards_hand]
+            if hidden
+            else self.cards_hand,
+            cards_stack=[Card.hidden for _ in self.cards_stack]
+            if hidden
+            else self.cards_stack,
+            cards_revealed=self.cards_revealed,
+            alive=self.alive,
+            is_playing=self.is_playing,
+        )
+
+    @classmethod
+    def from_state(self, state: PlayerState):
+        if state.is_hidden:
+            raise CannotLoadHiddenStateException()
+        new_player = Player(name=state.name)
+        new_player.cards_hand = state.cards_hand
+        new_player.cards_stack = state.cards_stack
+        new_player.points = state.points
+        new_player.alive = state.alive
+        new_player.is_playing = state.is_playing
+        new_player.cards_revealed = state.cards_revealed
+        return new_player
