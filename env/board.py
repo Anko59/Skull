@@ -1,21 +1,14 @@
-from .player import Player, PlayerState
-from .card import Card
-from .actions import (
-    Action,
-    PlayCardAction,
-    BetAction,
-    RevealCardAction,
-    LoseCardAction,
-    PassAction,
-)
-from .display import get_canvas
-from typing import List, Optional, Union
 from copy import deepcopy
 from dataclasses import dataclass
 from logging import getLogger
-from ipycanvas import Canvas
+from typing import List, Optional, Union
+
 from IPython.display import display
 
+from .actions import Action, BetAction, LoseCardAction, PassAction, PlayCardAction, RevealCardAction
+from .card import Card
+from .display import get_canvas
+from .player import Player, PlayerState
 
 logger = getLogger()
 
@@ -69,7 +62,7 @@ class Board:
         return sum([len(player.cards_revealed) for player in self.players])
 
     def _start_round(self):
-        logger.debug("Starting round")
+        logger.debug('Starting round')
         # Collect cards
         for player in self.players:
             player.collect_cards()
@@ -80,13 +73,13 @@ class Board:
                 # Last bet_holder is next first player
                 self.players = self.players[index:] + self.players[:index]
         self.next_player = self.players[0]
-        logger.debug(f"First player of round is {self.next_player.name}")
+        logger.debug(f'First player of round is {self.next_player.name}')
         self.bet_holder = None
         self.highest_bet = 0
 
     def _process_action(self, player: Player, action: Action):
         if isinstance(action, PlayCardAction):
-            logger.debug(f"Player {player.name} played card {action.card.value}")
+            logger.debug(f'Player {player.name} played card {action.card.value}')
             if action.card == Card.FLOWER:
                 player.play_flower()
             elif action.card == Card.SKULL:
@@ -95,7 +88,7 @@ class Board:
                 raise MoveIsNotLegal()
 
         elif isinstance(action, BetAction):
-            logger.debug(f"Player {player.name} bet {action.amount}")
+            logger.debug(f'Player {player.name} bet {action.amount}')
             self.bet_holder = player
             self.highest_bet = action.amount
 
@@ -103,26 +96,23 @@ class Board:
             for p in self.players:
                 if p.name == action.player_name:
                     card = next(p.reveal_stack())  # type: ignore
-                    logger.debug(
-                        f"Player {player.name} revealed the card of {p.name}"
-                        f" and it is a {card.value}"
-                    )
+                    logger.debug(f'Player {player.name} revealed the card of {p.name}' f' and it is a {card.value}')
                     if card == Card.SKULL:
                         player.is_playing = False
                         player.remove_card()
-                        logger.debug(f"Player {player.name} lost a random card")
+                        logger.debug(f'Player {player.name} lost a random card')
                     else:
                         if self._cards_shown() == self.highest_bet:
                             player.is_playing = False
-                            logger.debug(f"Player {player.name} earned a point")
+                            logger.debug(f'Player {player.name} earned a point')
                             player.points += 1
 
         elif isinstance(action, LoseCardAction):
-            logger.debug(f"Player {player.name} chose to lose {action.card.value}")
+            logger.debug(f'Player {player.name} chose to lose {action.card.value}')
             player.collect_cards()
             player.cards_hand.remove(action.card)
             if len(player.cards_hand) == 0:
-                logger.debug(f"Player {player.name} got eliminated")
+                logger.debug(f'Player {player.name} got eliminated')
                 player.alive = False
             player.is_playing = False
 
@@ -132,11 +122,11 @@ class Board:
     def winner(self) -> Optional[Player]:
         if not self._is_more_than_one_player_alive():
             winner = [x for x in self.players if x.alive][0]
-            logger.debug(f"We have a winner: {winner}")
+            logger.debug(f'We have a winner: {winner}')
             return winner
         elif self._has_anyone_won():
             winner = [x for x in self.players if x.points > 1][0]
-            logger.debug(f"We have a winner: {winner}")
+            logger.debug(f'We have a winner: {winner}')
             return winner
         else:
             return None
@@ -148,17 +138,13 @@ class Board:
             action = Action.from_notation(action)
         if action not in self.legal_moves:
             raise MoveIsNotLegal()
-        self.state_record.append(
-            deepcopy(self.get_state(show_hand=[p.name for p in self.players]))
-        )
+        self.state_record.append(deepcopy(self.get_state(show_hand=[p.name for p in self.players])))
         self.action_record.append(str(action))
         self._process_action(self.next_player, action)
         if self._is_round_over():
             self._start_round()
         else:
-            self.next_player = self.players[
-                (self.players.index(self.next_player) + 1) % len(self.players)
-            ]
+            self.next_player = self.players[(self.players.index(self.next_player) + 1) % len(self.players)]
         self.legal_moves = self._get_legal_moves()
 
     def pop(self):
@@ -175,22 +161,16 @@ class Board:
             self.forward(self.legal_moves[0])
 
     def load_state(self, state: BoardState):
-        self.players = [
-            Player.from_state(state=player_state) for player_state in state.players
-        ]
+        self.players = [Player.from_state(state=player_state) for player_state in state.players]
 
         self.highest_bet = state.highest_bet
         if state.bet_holder is None:
             self.bet_holder = None
         else:
-            self.bet_holder = self.players[
-                [x.name for x in self.players].index(state.bet_holder)
-            ]
-        self.next_player = self.players[
-            [x.name for x in self.players].index(state.next_player)
-        ]
+            self.bet_holder = self.players[[x.name for x in self.players].index(state.bet_holder)]
+        self.next_player = self.players[[x.name for x in self.players].index(state.next_player)]
         self.legal_moves = self._get_legal_moves()
-        logger.debug(f"State loaded, next player is {self.next_player.name}")
+        logger.debug(f'State loaded, next player is {self.next_player.name}')
 
     def _get_legal_moves_cards_and_bet_stage(self) -> List[Action]:
         player = self.next_player
@@ -210,16 +190,14 @@ class Board:
         if not any([(len(p.cards_stack) == 0) and p.is_playing for p in self.players]):
             for i in range(self.highest_bet + 1, self._nbr_cards_on_board() + 1):
                 legal_actions.append(BetAction(i))
-        logger.debug(f"Legal moves {legal_actions}")
+        logger.debug(f'Legal moves {legal_actions}')
         return legal_actions
 
     def _get_legal_moves_reveal_cards_stage(self) -> List[Action]:
         player = self.next_player
         # Starting with his own cards
         for card in player.reveal_stack():
-            logger.debug(
-                f"Player {player.name} reveald card {card.value} from his stack"
-            )
+            logger.debug(f'Player {player.name} reveald card {card.value} from his stack')
             if card == Card.SKULL:
                 # Auto Skulled
                 player.collect_cards()
@@ -230,7 +208,7 @@ class Board:
 
             if len(player.cards_revealed) == self.highest_bet:
                 # Victory by returning only own cards
-                logger.debug(f"Player {player.name} earned a point")
+                logger.debug(f'Player {player.name} earned a point')
                 player.points += 1
                 return [PassAction()]
 
@@ -254,15 +232,12 @@ class Board:
             # He can show cards
             return self._get_legal_moves_reveal_cards_stage()
 
-    def get_state(self, show_hand: Union[List[str], str] = "next_player") -> BoardState:
-        if show_hand == "next_player":
+    def get_state(self, show_hand: Union[List[str], str] = 'next_player') -> BoardState:
+        if show_hand == 'next_player':
             show_hand = [self.next_player.name]
         return BoardState(
             next_player=self.next_player.name,
-            players=[
-                p.get_state(hidden=(p.name not in show_hand))  # type: ignore
-                for p in self.players
-            ],
+            players=[p.get_state(hidden=(p.name not in show_hand)) for p in self.players],  # type: ignore
             highest_bet=self.highest_bet,
             bet_holder=self.bet_holder.name if self.bet_holder is not None else None,
         )
