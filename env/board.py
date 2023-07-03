@@ -1,18 +1,14 @@
-from .player import Player, PlayerState
-from .card import Card
-from .actions import (
-    Action,
-    PlayCardAction,
-    BetAction,
-    RevealCardAction,
-    LoseCardAction,
-    PassAction,
-)
-from typing import List, Optional, Union
 from copy import deepcopy
 from dataclasses import dataclass
 from logging import getLogger
+from typing import List, Optional, Union
 
+from IPython.display import display
+
+from .actions import Action, BetAction, LoseCardAction, PassAction, PlayCardAction, RevealCardAction
+from .card import Card
+from .display import get_canvas
+from .player import Player, PlayerState
 
 logger = getLogger()
 
@@ -35,6 +31,9 @@ class BoardState:
     bet_holder: Optional[str]
     highest_bet: int
     next_player: str
+
+    def _ipython_display_(self):
+        display(get_canvas(self))
 
 
 class Board:
@@ -97,9 +96,7 @@ class Board:
             for p in self.players:
                 if p.name == action.player_name:
                     card = next(p.reveal_stack())  # type: ignore
-                    logger.debug(
-                        f'Player {player.name} revealed the card of {p.name}'
-                        f' and it is a {card.value}')
+                    logger.debug(f'Player {player.name} revealed the card of {p.name}' f' and it is a {card.value}')
                     if card == Card.SKULL:
                         player.is_playing = False
                         player.remove_card()
@@ -147,9 +144,7 @@ class Board:
         if self._is_round_over():
             self._start_round()
         else:
-            self.next_player = self.players[
-                (self.players.index(self.next_player) + 1) % len(self.players)
-            ]
+            self.next_player = self.players[(self.players.index(self.next_player) + 1) % len(self.players)]
         self.legal_moves = self._get_legal_moves()
 
     def pop(self):
@@ -166,21 +161,14 @@ class Board:
             self.forward(self.legal_moves[0])
 
     def load_state(self, state: BoardState):
-        self.players = [
-            Player.from_state(state=player_state)
-            for player_state in state.players
-        ]
+        self.players = [Player.from_state(state=player_state) for player_state in state.players]
 
         self.highest_bet = state.highest_bet
         if state.bet_holder is None:
             self.bet_holder = None
         else:
-            self.bet_holder = self.players[
-                [x.name for x in self.players].index(state.bet_holder)
-            ]
-        self.next_player = self.players[
-            [x.name for x in self.players].index(state.next_player)
-        ]
+            self.bet_holder = self.players[[x.name for x in self.players].index(state.bet_holder)]
+        self.next_player = self.players[[x.name for x in self.players].index(state.next_player)]
         self.legal_moves = self._get_legal_moves()
         logger.debug(f'State loaded, next player is {self.next_player.name}')
 
@@ -199,14 +187,12 @@ class Board:
 
         # If everyone has played at least once, he can bet
         # up to the total number of cards
-        if not any(
-            [(len(p.cards_stack) == 0) and p.is_playing for p in self.players]
-        ):
+        if not any([(len(p.cards_stack) == 0) and p.is_playing for p in self.players]):
             for i in range(self.highest_bet + 1, self._nbr_cards_on_board() + 1):
                 legal_actions.append(BetAction(i))
         logger.debug(f'Legal moves {legal_actions}')
         return legal_actions
-    
+
     def _get_legal_moves_reveal_cards_stage(self) -> List[Action]:
         player = self.next_player
         # Starting with his own cards
@@ -232,8 +218,7 @@ class Board:
             RevealCardAction(opponent.name)
             for opponent in self.players
             if opponent != player and len(opponent.cards_stack) > 0
-            ]
-
+        ]
 
     def _get_legal_moves(self) -> List[Action]:  # type: ignore
         player = self.next_player
@@ -247,16 +232,12 @@ class Board:
             # He can show cards
             return self._get_legal_moves_reveal_cards_stage()
 
-    def get_state(
-        self, show_hand: Union[List[str], str] = "next_player"
-    ) -> BoardState:
-        if show_hand == "next_player":
+    def get_state(self, show_hand: Union[List[str], str] = 'next_player') -> BoardState:
+        if show_hand == 'next_player':
             show_hand = [self.next_player.name]
         return BoardState(
             next_player=self.next_player.name,
-            players=[
-                p.get_state(hidden=(p.name not in show_hand))  # type: ignore
-                for p in self.players],
+            players=[p.get_state(hidden=(p.name not in show_hand)) for p in self.players],  # type: ignore
             highest_bet=self.highest_bet,
             bet_holder=self.bet_holder.name if self.bet_holder is not None else None,
         )
@@ -267,3 +248,6 @@ class Board:
         new_board.load_state(state)
         new_board.legal_moves = new_board._get_legal_moves()
         return new_board
+
+    def _ipython_display_(self):
+        self.get_state()._ipython_display_()
